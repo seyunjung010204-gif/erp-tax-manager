@@ -366,17 +366,46 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
     try {
       const ids = recordsToDelete.map((r) => r.id);
 
+      const chunk = <T,>(array: T[], size: number) => {
+        const result: T[][] = [];
+
+        for (let i = 0; i < array.length; i += size) {
+          result.push(array.slice(i, i + size));
+        }
+
+        return result;
+      };
+
       const filesToDelete = attachments
         .filter((a) => ids.includes(a.tax_record_id))
         .map((a) => a.file_path);
 
-      if (filesToDelete.length > 0) {
-        await supabase.storage.from("evidence").remove(filesToDelete);
+      const fileChunks = chunk(filesToDelete, 100);
+
+      for (const fileChunk of fileChunks) {
+        if (fileChunk.length > 0) {
+          const { error: storageError } = await supabase.storage
+            .from("evidence")
+            .remove(fileChunk);
+
+          if (storageError) {
+            console.warn("증빙파일 삭제 중 일부 오류:", storageError.message);
+          }
+        }
       }
 
-      const { error } = await supabase.from("tax_records").delete().in("id", ids);
+      const idChunks = chunk(ids, 100);
 
-      if (error) throw error;
+      for (const idChunk of idChunks) {
+        const { error } = await supabase
+          .from("tax_records")
+          .delete()
+          .in("id", idChunk);
+
+        if (error) {
+          throw error;
+        }
+      }
 
       setRecords((prev) => prev.filter((r) => !ids.includes(r.id)));
       setAttachments((prev) =>
