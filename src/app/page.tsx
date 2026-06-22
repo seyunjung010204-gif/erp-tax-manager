@@ -45,6 +45,8 @@ export default function Home() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
 
   const [selected, setSelected] = useState<TaxRecord | null>(null);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
   const [typeFilter, setTypeFilter] = useState<"all" | TaxType>("all");
@@ -189,6 +191,8 @@ export default function Home() {
     setProfile(null);
     setRecords([]);
     setAttachments([]);
+    setSelected(null);
+    setSelectedRecordIds([]);
   }
 
   async function handleCsvUpload(file: File) {
@@ -309,24 +313,89 @@ export default function Home() {
     setSelected(data as TaxRecord);
   }
 
-  async function deleteRecord(record: TaxRecord) {
-    if (!confirm("이 거래내역과 연결된 증빙자료를 삭제할까요?")) return;
+  function toggleRecordSelection(recordId: string) {
+    setSelectedRecordIds((prev) =>
+      prev.includes(recordId)
+        ? prev.filter((id) => id !== recordId)
+        : [...prev, recordId]
+    );
+  }
 
-    const { error } = await supabase
-      .from("tax_records")
-      .delete()
-      .eq("id", record.id);
+  function toggleAllFilteredRecords() {
+    const filteredIds = filteredRecords.map((r) => r.id);
+    const allSelected =
+      filteredIds.length > 0 &&
+      filteredIds.every((id) => selectedRecordIds.includes(id));
 
-    if (error) {
-      alert(error.message);
+    if (allSelected) {
+      setSelectedRecordIds((prev) =>
+        prev.filter((id) => !filteredIds.includes(id))
+      );
+    } else {
+      setSelectedRecordIds((prev) =>
+        Array.from(new Set([...prev, ...filteredIds]))
+      );
+    }
+  }
+
+  async function deleteRecordsBatch(recordsToDelete: TaxRecord[]) {
+    if (recordsToDelete.length === 0) {
+      alert("삭제할 항목이 없습니다.");
       return;
     }
 
-    setRecords((prev) => prev.filter((r) => r.id !== record.id));
-    setAttachments((prev) =>
-      prev.filter((a) => a.tax_record_id !== record.id)
+    const confirmed = confirm(
+      `${recordsToDelete.length}건의 거래내역을 삭제할까요?\n연결된 증빙자료도 함께 삭제됩니다.`
     );
-    setSelected(null);
+
+    if (!confirmed) return;
+
+    setLoading(true);
+
+    try {
+      const ids = recordsToDelete.map((r) => r.id);
+
+      const filesToDelete = attachments
+        .filter((a) => ids.includes(a.tax_record_id))
+        .map((a) => a.file_path);
+
+      if (filesToDelete.length > 0) {
+        await supabase.storage.from("evidence").remove(filesToDelete);
+      }
+
+      const { error } = await supabase.from("tax_records").delete().in("id", ids);
+
+      if (error) throw error;
+
+      setRecords((prev) => prev.filter((r) => !ids.includes(r.id)));
+      setAttachments((prev) =>
+        prev.filter((a) => !ids.includes(a.tax_record_id))
+      );
+      setSelectedRecordIds((prev) => prev.filter((id) => !ids.includes(id)));
+
+      if (selected && ids.includes(selected.id)) {
+        setSelected(null);
+      }
+
+      alert(`${recordsToDelete.length}건이 삭제되었습니다.`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "삭제에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteRecord(record: TaxRecord) {
+    await deleteRecordsBatch([record]);
+  }
+
+  async function deleteSelectedRecords() {
+    const targets = records.filter((r) => selectedRecordIds.includes(r.id));
+    await deleteRecordsBatch(targets);
+  }
+
+  async function deleteAllFilteredRecords() {
+    await deleteRecordsBatch(filteredRecords);
   }
 
   async function uploadEvidence(file: File, source: "upload" | "camera") {
@@ -393,6 +462,7 @@ export default function Home() {
     if (!confirm("이 증빙자료를 삭제할까요?")) return;
 
     await supabase.storage.from("evidence").remove([file.file_path]);
+
     const { error } = await supabase
       .from("attachments")
       .delete()
@@ -521,6 +591,10 @@ export default function Home() {
     await loadProfiles();
   }
 
+  const allFilteredSelected =
+    filteredRecords.length > 0 &&
+    filteredRecords.every((r) => selectedRecordIds.includes(r.id));
+
   if (!sessionUserId) {
     return (
       <main className="min-h-screen flex items-center justify-center p-5">
@@ -614,6 +688,25 @@ export default function Home() {
               내보내기
             </button>
 
+            <button
+              className="btn"
+              onClick={deleteSelectedRecords}
+              disabled={selectedRecordIds.length === 0}
+            >
+              <Trash2 size={16} />
+              선택 삭제
+              {selectedRecordIds.length > 0 ? ` (${selectedRecordIds.length})` : ""}
+            </button>
+
+            <button
+              className="btn"
+              onClick={deleteAllFilteredRecords}
+              disabled={filteredRecords.length === 0}
+            >
+              <Trash2 size={16} />
+              조회 전체 삭제
+            </button>
+
             <div className="relative">
               <button className="btn" onClick={() => setAiOpen((v) => !v)}>
                 AI 기능 <ChevronDown size={16} />
@@ -683,7 +776,9 @@ export default function Home() {
           </div>
           <div className="glass-strong rounded-3xl p-5">
             <p className="text-sm text-slate-500">증빙 미연결</p>
-            <p className="text-2xl font-black mt-2">{summary.missingEvidence}건</p>
+            <p className="text-2xl font-black mt-2">
+              {summary.missingEvidence}건
+            </p>
           </div>
         </section>
 
@@ -740,9 +835,16 @@ export default function Home() {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-4 mt-4">
           <section className="glass rounded-[28px] overflow-hidden">
             <div className="overflow-auto">
-              <table className="w-full min-w-[1080px]">
+              <table className="w-full min-w-[1120px]">
                 <thead>
                   <tr>
+                    <th className="table-th">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleAllFilteredRecords}
+                      />
+                    </th>
                     <th className="table-th">날짜</th>
                     <th className="table-th">구분</th>
                     <th className="table-th">상호</th>
@@ -770,6 +872,14 @@ export default function Home() {
                         }`}
                         onClick={() => setSelected(r)}
                       >
+                        <td className="table-td">
+                          <input
+                            type="checkbox"
+                            checked={selectedRecordIds.includes(r.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => toggleRecordSelection(r.id)}
+                          />
+                        </td>
                         <td className="table-td">{r.record_date}</td>
                         <td className="table-td">
                           <span
@@ -833,11 +943,9 @@ export default function Home() {
                     </p>
                   </div>
 
-                  {profile?.role === "admin" && (
-                    <button className="btn" onClick={() => deleteRecord(selected)}>
-                      <Trash2 size={16} />
-                    </button>
-                  )}
+                  <button className="btn" onClick={() => deleteRecord(selected)}>
+                    <Trash2 size={16} />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-4">
@@ -862,6 +970,7 @@ export default function Home() {
                     <option value="purchase">매입</option>
                     <option value="sales">매출</option>
                   </select>
+
                   <input
                     className="input col-span-2"
                     value={selected.vendor_name}
@@ -870,6 +979,7 @@ export default function Home() {
                     }
                     placeholder="상호"
                   />
+
                   <input
                     className="input"
                     value={selected.departure ?? ""}
@@ -878,6 +988,7 @@ export default function Home() {
                     }
                     placeholder="출발"
                   />
+
                   <input
                     className="input"
                     value={selected.destination ?? ""}
@@ -886,6 +997,7 @@ export default function Home() {
                     }
                     placeholder="도착"
                   />
+
                   <input
                     className="input"
                     value={selected.payment_status ?? ""}
@@ -897,6 +1009,7 @@ export default function Home() {
                     }
                     placeholder="지급상태"
                   />
+
                   <input
                     className="input"
                     value={selected.vehicle_type ?? ""}
@@ -908,6 +1021,7 @@ export default function Home() {
                     }
                     placeholder="차종"
                   />
+
                   <input
                     className="input"
                     type="number"
@@ -922,6 +1036,7 @@ export default function Home() {
                     }
                     placeholder="공급가액"
                   />
+
                   <input
                     className="input"
                     type="number"
@@ -937,6 +1052,7 @@ export default function Home() {
                     }
                     placeholder="부가세"
                   />
+
                   <input
                     className="input col-span-2"
                     value={selected.approval_number ?? ""}
@@ -948,6 +1064,7 @@ export default function Home() {
                     }
                     placeholder="홈택스 승인번호"
                   />
+
                   <textarea
                     className="input col-span-2 h-24 py-3"
                     value={selected.memo ?? ""}
@@ -982,6 +1099,7 @@ export default function Home() {
                       <FileText size={16} />
                       파일 추가
                     </button>
+
                     <button
                       className="btn"
                       onClick={() => cameraInputRef.current?.click()}
@@ -1027,10 +1145,12 @@ export default function Home() {
                           >
                             {file.file_name}
                           </button>
+
                           <button onClick={() => deleteEvidence(file)}>
                             <Trash2 size={15} />
                           </button>
                         </div>
+
                         <p className="text-xs text-slate-500 mt-1">
                           이 파일은 현재 선택된 거래내역에만 연결됩니다.
                         </p>
