@@ -201,8 +201,19 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const text = await file.text();
-      const parsed = parseHometaxCsv(text, csvType, sessionUserId);
+      const buffer = await file.arrayBuffer();
+
+let text = new TextDecoder("utf-8").decode(buffer);
+
+if (text.includes("�")) {
+  try {
+    text = new TextDecoder("euc-kr").decode(buffer);
+  } catch {
+    text = new TextDecoder("utf-8").decode(buffer);
+  }
+}
+
+const parsed = parseHometaxCsv(text, csvType, sessionUserId);
 
       const { data, error } = await supabase
         .from("tax_records")
