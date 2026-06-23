@@ -15,7 +15,6 @@ import {
   Save,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { parseHometaxCsv } from "@/lib/hometaxCsv";
 import { EvidenceAttachment, Profile, TaxRecord, TaxType } from "@/types/tax";
 
 function won(value: number | string | null | undefined) {
@@ -197,46 +196,47 @@ export default function Home() {
   }
 
   async function handleCsvUpload(file: File) {
-    if (!sessionUserId) return;
-
     setLoading(true);
 
     try {
-      const buffer = await file.arrayBuffer();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
 
-let text = new TextDecoder("utf-8").decode(buffer);
+      if (!token) {
+        throw new Error("로그인이 필요합니다.");
+      }
 
-if (text.includes("�")) {
-  try {
-    text = new TextDecoder("euc-kr").decode(buffer);
-  } catch {
-    text = new TextDecoder("utf-8").decode(buffer);
-  }
-}
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("type", csvType);
 
-const parsed = parseHometaxCsv(text, csvType, sessionUserId);
-
-      const { data, error } = await supabase
-        .from("tax_records")
-        .insert(parsed)
-        .select("*");
-
-      if (error) throw error;
-
-      await supabase.from("import_batches").insert({
-        file_name: file.name,
-        source: "hometax_csv",
-        imported_by: sessionUserId,
-        row_count: parsed.length,
+      const res = await fetch("/api/import-hometax", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
       });
 
-      setRecords((prev) => [...((data ?? []) as TaxRecord[]), ...prev]);
-      alert(`${parsed.length}건을 홈택스 파일에서 가져왔습니다.`);
+      const payload = await res.json();
+
+      if (!res.ok) {
+        throw new Error(payload.error ?? "홈택스 파일 업로드에 실패했습니다.");
+      }
+
+      const imported = (payload.records ?? []) as TaxRecord[];
+
+      setRecords((prev) => [...imported, ...prev]);
+
+      alert(`${payload.rowCount ?? imported.length}건을 홈택스 파일에서 가져왔습니다.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "CSV/엑셀 업로드에 실패했습니다.");
+      alert(e instanceof Error ? e.message : "홈택스 파일 업로드에 실패했습니다.");
     } finally {
       setLoading(false);
-      if (csvInputRef.current) csvInputRef.current.value = "";
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = "";
+      }
     }
   }
 
