@@ -52,6 +52,7 @@ export default function Home() {
   const [typeFilter, setTypeFilter] = useState<"all" | TaxType>("all");
   const [search, setSearch] = useState("");
   const [csvType, setCsvType] = useState<TaxType>("purchase");
+  const [attachmentType, setAttachmentType] = useState("tax_invoice");
 
   const [aiOpen, setAiOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -251,6 +252,13 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
         business_number: record.business_number,
         business_type: record.business_type,
         item_name: record.item_name,
+        payment_date: record.payment_date,
+        approval_doc_checked: Boolean(record.approval_doc_checked),
+        bank_account_checked: Boolean(record.bank_account_checked),
+        business_license_checked: Boolean(record.business_license_checked),
+        withholding_checked: Boolean(record.withholding_checked),
+        etc_evidence: record.etc_evidence,
+        remark: record.remark,
         departure: record.departure,
         destination: record.destination,
         payment_status: record.payment_status,
@@ -467,7 +475,7 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
           file_type: file.type || "application/octet-stream",
           file_path: filePath,
           file_size: file.size,
-          attachment_type: source === "camera" ? "camera_photo" : "evidence",
+          attachment_type: source === "camera" ? "camera_photo" : attachmentType,
           uploaded_by: sessionUserId,
         })
         .select("*")
@@ -707,7 +715,7 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
               {profile?.role === "admin" && <div className="badge">관리자</div>}
             </div>
             <h1 className="mt-3 text-2xl md:text-3xl font-black tracking-[-0.04em]">
-              홈택스 매입·매출 및 증빙자료 관리
+              세금계산서 및 증빙자료 관리
             </h1>
             <p className="mt-1 text-sm text-slate-500">{sessionEmail}</p>
           </div>
@@ -746,29 +754,6 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
               <Trash2 size={16} />
               조회 전체 삭제
             </button>
-
-            <div className="relative">
-              <button className="btn" onClick={() => setAiOpen((v) => !v)}>
-                AI 기능 <ChevronDown size={16} />
-              </button>
-
-              {aiOpen && (
-                <div className="absolute right-0 mt-2 w-52 glass-strong rounded-2xl p-2 z-30">
-                  <button className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100">
-                    이상감지
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100">
-                    재무 브리핑
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100">
-                    부가세 요약
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100">
-                    증빙 누락 체크
-                  </button>
-                </div>
-              )}
-            </div>
 
             {profile?.role === "admin" && (
               <button
@@ -885,15 +870,14 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
                         onChange={toggleAllFilteredRecords}
                       />
                     </th>
-                    <th className="table-th">날짜</th>
+                    <th className="table-th">발행일자</th>
                     <th className="table-th">구분</th>
                     <th className="table-th">상호</th>
-                    <th className="table-th">출발</th>
-                    <th className="table-th">도착</th>
-                    <th className="table-th">지급</th>
-                    <th className="table-th">차종</th>
-                    <th className="table-th money">공급가액</th>
-                    <th className="table-th money">부가세</th>
+                    <th className="table-th">사업자등록번호</th>
+                    <th className="table-th">적요</th>
+                    <th className="table-th">지급일</th>
+                    <th className="table-th money">공급가</th>
+                    <th className="table-th money">VAT</th>
                     <th className="table-th">증빙</th>
                   </tr>
                 </thead>
@@ -933,10 +917,9 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
                           </span>
                         </td>
                         <td className="table-td font-bold">{r.vendor_name}</td>
-                        <td className="table-td">{r.departure || "-"}</td>
-                        <td className="table-td">{r.destination || "-"}</td>
-                        <td className="table-td">{r.payment_status || "-"}</td>
-                        <td className="table-td">{r.vehicle_type || "-"}</td>
+                        <td className="table-td">{r.business_number || "-"}</td>
+                        <td className="table-td">{r.item_name || r.memo || "-"}</td>
+                        <td className="table-td">{r.payment_date || "-"}</td>
                         <td className="table-td money">
                           {won(r.supply_amount)}
                         </td>
@@ -1021,45 +1004,52 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
                   />
 
                   <input
-                    className="input"
-                    value={selected.departure ?? ""}
-                    onChange={(e) =>
-                      setSelected({ ...selected, departure: e.target.value })
-                    }
-                    placeholder="출발"
-                  />
-
-                  <input
-                    className="input"
-                    value={selected.destination ?? ""}
-                    onChange={(e) =>
-                      setSelected({ ...selected, destination: e.target.value })
-                    }
-                    placeholder="도착"
-                  />
-
-                  <input
-                    className="input"
-                    value={selected.payment_status ?? ""}
+                    className="input col-span-2"
+                    value={selected.business_number ?? ""}
                     onChange={(e) =>
                       setSelected({
                         ...selected,
-                        payment_status: e.target.value,
+                        business_number: e.target.value,
                       })
                     }
-                    placeholder="지급상태"
+                    placeholder="사업자등록번호"
+                  />
+
+                  <input
+                    className="input col-span-2"
+                    value={selected.item_name ?? ""}
+                    onChange={(e) =>
+                      setSelected({
+                        ...selected,
+                        item_name: e.target.value,
+                      })
+                    }
+                    placeholder="적요"
                   />
 
                   <input
                     className="input"
-                    value={selected.vehicle_type ?? ""}
+                    type="date"
+                    value={selected.payment_date ?? ""}
                     onChange={(e) =>
                       setSelected({
                         ...selected,
-                        vehicle_type: e.target.value,
+                        payment_date: e.target.value || null,
                       })
                     }
-                    placeholder="차종"
+                    placeholder="지급일"
+                  />
+
+                  <input
+                    className="input"
+                    value={selected.approval_number ?? ""}
+                    onChange={(e) =>
+                      setSelected({
+                        ...selected,
+                        approval_number: e.target.value,
+                      })
+                    }
+                    placeholder="홈택스 승인번호"
                   />
 
                   <input
@@ -1074,7 +1064,7 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
                           Number(e.target.value) + Number(selected.vat_amount),
                       })
                     }
-                    placeholder="공급가액"
+                    placeholder="공급가"
                   />
 
                   <input
@@ -1090,28 +1080,88 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
                           Number(e.target.value),
                       })
                     }
-                    placeholder="부가세"
+                    placeholder="VAT"
                   />
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected.approval_doc_checked)}
+                      onChange={(e) =>
+                        setSelected({
+                          ...selected,
+                          approval_doc_checked: e.target.checked,
+                        })
+                      }
+                    />
+                    품의서
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected.bank_account_checked)}
+                      onChange={(e) =>
+                        setSelected({
+                          ...selected,
+                          bank_account_checked: e.target.checked,
+                        })
+                      }
+                    />
+                    계좌사본
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected.business_license_checked)}
+                      onChange={(e) =>
+                        setSelected({
+                          ...selected,
+                          business_license_checked: e.target.checked,
+                        })
+                      }
+                    />
+                    사업자등록증
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected.withholding_checked)}
+                      onChange={(e) =>
+                        setSelected({
+                          ...selected,
+                          withholding_checked: e.target.checked,
+                        })
+                      }
+                    />
+                    원천징수영수증
+                  </label>
 
                   <input
                     className="input col-span-2"
-                    value={selected.approval_number ?? ""}
+                    value={selected.etc_evidence ?? ""}
                     onChange={(e) =>
                       setSelected({
                         ...selected,
-                        approval_number: e.target.value,
+                        etc_evidence: e.target.value,
                       })
                     }
-                    placeholder="홈택스 승인번호"
+                    placeholder="기타 증빙 내용"
                   />
 
                   <textarea
                     className="input col-span-2 h-24 py-3"
-                    value={selected.memo ?? ""}
+                    value={selected.remark ?? selected.memo ?? ""}
                     onChange={(e) =>
-                      setSelected({ ...selected, memo: e.target.value })
+                      setSelected({
+                        ...selected,
+                        remark: e.target.value,
+                        memo: e.target.value,
+                      })
                     }
-                    placeholder="메모"
+                    placeholder="비고"
                   />
                 </div>
 
@@ -1130,6 +1180,20 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
                       {selectedAttachments.length}개
                     </span>
                   </div>
+
+                  <select
+                    className="input w-full mt-3"
+                    value={attachmentType}
+                    onChange={(e) => setAttachmentType(e.target.value)}
+                  >
+                    <option value="tax_invoice">세금계산서</option>
+                    <option value="statement">거래명세서</option>
+                    <option value="bank_account">계좌사본</option>
+                    <option value="business_license">사업자등록증</option>
+                    <option value="withholding">원천징수영수증</option>
+                    <option value="approval_doc">품의서</option>
+                    <option value="etc">기타</option>
+                  </select>
 
                   <div className="grid grid-cols-2 gap-2 mt-3">
                     <button

@@ -257,6 +257,16 @@ export function parseHometaxCsv(
       etc_evidence: null,
       remark: null,
     };
+  }).filter((record) => {
+    const hasVendor = record.vendor_name !== "미확인 업체";
+    const hasAmount =
+      Number(record.supply_amount ?? 0) !== 0 ||
+      Number(record.vat_amount ?? 0) !== 0 ||
+      Number(record.total_amount ?? 0) !== 0;
+    const hasBusinessNumber = Boolean(record.business_number);
+    const hasApprovalNumber = Boolean(record.approval_number);
+
+    return hasVendor || hasAmount || hasBusinessNumber || hasApprovalNumber;
   });
 }
 
