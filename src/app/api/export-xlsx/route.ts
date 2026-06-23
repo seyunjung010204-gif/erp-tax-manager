@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { TaxRecord } from "@/types/tax";
+import { toFixedTaxInvoiceRows } from "@/lib/hometaxCsv";
+import { EvidenceAttachment, TaxRecord } from "@/types/tax";
 
 function money(value: number | string | null | undefined) {
   return Number(value ?? 0);
@@ -67,20 +68,34 @@ export async function POST(req: NextRequest) {
 
     const { data: records, error } = await query;
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const rows = (records ?? []) as TaxRecord[];
+    const ids = rows.map((r) => r.id);
+
+    let attachments: EvidenceAttachment[] = [];
+
+    if (ids.length > 0) {
+      const { data: attRows, error: attError } = await supabase
+        .from("attachments")
+        .select("*")
+        .in("tax_record_id", ids);
+
+      if (attError) throw attError;
+
+      attachments = (attRows ?? []) as EvidenceAttachment[];
+    }
+
+    const fixedRows = toFixedTaxInvoiceRows(rows, attachments);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "ERP Tax Manager";
     workbook.created = new Date();
 
-    const sheet = workbook.addWorksheet("내역서", {
+    const sheet = workbook.addWorksheet("세금계산서", {
       pageSetup: {
         paperSize: 9,
-        orientation: "portrait",
+        orientation: "landscape",
         fitToPage: true,
         fitToWidth: 1,
         fitToHeight: 0,
@@ -88,198 +103,157 @@ export async function POST(req: NextRequest) {
     });
 
     sheet.columns = [
-      { key: "date", width: 15 },
-      { key: "vendor", width: 28 },
-      { key: "departure", width: 16 },
-      { key: "destination", width: 16 },
-      { key: "payment", width: 14 },
-      { key: "vehicle", width: 12 },
-      { key: "supply", width: 16 },
-      { key: "vat", width: 16 },
-      { key: "total", width: 16 },
-      { key: "memo", width: 24 },
+      { width: 3 },
+      { width: 3 },
+      { width: 16 },
+      { width: 26 },
+      { width: 18 },
+      { width: 26 },
+      { width: 14 },
+      { width: 14 },
+      { width: 14 },
+      { width: 14 },
+      { width: 10 },
+      { width: 10 },
+      { width: 10 },
+      { width: 10 },
+      { width: 12 },
+      { width: 12 },
+      { width: 18 },
+      { width: 26 },
     ];
 
-    sheet.mergeCells("A1:J1");
-    sheet.getCell("A1").value = "거래명세서";
-    sheet.getCell("A1").font = {
-      size: 24,
-      bold: true,
-      color: { argb: "FF0F172A" },
-    };
-    sheet.getCell("A1").alignment = {
-      horizontal: "center",
-      vertical: "middle",
-    };
-    sheet.getRow(1).height = 42;
+    sheet.getCell("C1").value = "■ 6월 지출명세";
+    sheet.getCell("C1").font = { bold: true, size: 18 };
 
-    sheet.mergeCells("A2:J2");
-    sheet.getCell("A2").value = "홈택스 세금계산서 기준 매입·매출 내역";
-    sheet.getCell("A2").font = {
-      size: 11,
-      color: { argb: "FF64748B" },
-    };
-    sheet.getCell("A2").alignment = {
-      horizontal: "center",
-    };
+    sheet.getCell("C3").value = "HMG퓨처콤플렉스㈜";
+    sheet.getCell("C3").font = { bold: true, size: 13 };
+    sheet.getCell("R3").value = "(단위:원)";
+    sheet.getCell("R3").alignment = { horizontal: "right" };
 
-    sheet.getCell("A4").value = "조회기간";
-    sheet.getCell("B4").value = `${from} ~ ${to}`;
-    sheet.getCell("D4").value = "자료구분";
-    sheet.getCell("E4").value =
-      type === "all" ? "전체" : type === "purchase" ? "매입" : "매출";
+    sheet.mergeCells("C4:C5");
+    sheet.mergeCells("D4:E4");
+    sheet.mergeCells("F4:F5");
+    sheet.mergeCells("G4:I4");
+    sheet.mergeCells("J4:J5");
+    sheet.mergeCells("K4:Q4");
+    sheet.mergeCells("R4:R5");
 
-    sheet.getCell("A5").value = "출력일자";
-    sheet.getCell("B5").value = new Date().toISOString().slice(0, 10);
-    sheet.getCell("D5").value = "건수";
-    sheet.getCell("E5").value = `${rows.length}건`;
+    sheet.getCell("C4").value = "세금계산서\n발행일자";
+    sheet.getCell("D4").value = "거래선";
+    sheet.getCell("F4").value = "적요";
+    sheet.getCell("G4").value = "금액";
+    sheet.getCell("J4").value = "지급일";
+    sheet.getCell("K4").value = "관련증빙";
+    sheet.getCell("R4").value = "비고";
 
-    for (const cell of ["A4", "D4", "A5", "D5"]) {
-      sheet.getCell(cell).font = { bold: true, color: { argb: "FF0F172A" } };
-      sheet.getCell(cell).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFEFF6FF" },
-      };
-      sheet.getCell(cell).border = borderStyle();
-      sheet.getCell(cell).alignment = { horizontal: "center" };
+    sheet.getCell("D5").value = "상호";
+    sheet.getCell("E5").value = "사업자등록번호";
+    sheet.getCell("G5").value = "공급가";
+    sheet.getCell("H5").value = "VAT";
+    sheet.getCell("I5").value = "계";
+    sheet.getCell("K5").value = "품의서";
+    sheet.getCell("L5").value = "세금\n계산서";
+    sheet.getCell("M5").value = "거래\n명세서";
+    sheet.getCell("N5").value = "계좌\n사본";
+    sheet.getCell("O5").value = "사업자\n등록증";
+    sheet.getCell("P5").value = "원천징수\n영수증";
+    sheet.getCell("Q5").value = "기타";
+
+    for (let row = 4; row <= 5; row++) {
+      for (let col = 3; col <= 18; col++) {
+        const cell = sheet.getCell(row, col);
+        cell.border = borderStyle();
+        cell.alignment = {
+          horizontal: "center",
+          vertical: "middle",
+          wrapText: true,
+        };
+        cell.font = { bold: true };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFEFF6FF" },
+        };
+      }
     }
 
-    for (const cell of ["B4", "E4", "B5", "E5"]) {
-      sheet.getCell(cell).border = borderStyle();
-      sheet.getCell(cell).alignment = { horizontal: "center" };
+    let currentRow = 6;
+
+    for (const rowValues of fixedRows) {
+      const row = sheet.getRow(currentRow);
+
+      row.getCell(3).value = rowValues[0];
+      row.getCell(4).value = rowValues[1];
+      row.getCell(5).value = rowValues[2];
+      row.getCell(6).value = rowValues[3];
+      row.getCell(7).value = money(rowValues[4]);
+      row.getCell(8).value = money(rowValues[5]);
+      row.getCell(9).value = money(rowValues[6]);
+      row.getCell(10).value = rowValues[7];
+      row.getCell(11).value = rowValues[8];
+      row.getCell(12).value = rowValues[9];
+      row.getCell(13).value = rowValues[10];
+      row.getCell(14).value = rowValues[11];
+      row.getCell(15).value = rowValues[12];
+      row.getCell(16).value = rowValues[13];
+      row.getCell(17).value = rowValues[14];
+      row.getCell(18).value = rowValues[15];
+
+      for (let col = 3; col <= 18; col++) {
+        const cell = row.getCell(col);
+        cell.border = borderStyle();
+        cell.alignment = {
+          horizontal: col >= 7 && col <= 9 ? "right" : "center",
+          vertical: "middle",
+          wrapText: true,
+        };
+
+        if (col >= 7 && col <= 9) {
+          cell.numFmt = "#,##0";
+        }
+      }
+
+      currentRow += 1;
     }
+
+    const totalRow = sheet.getRow(currentRow);
+    sheet.mergeCells(`C${currentRow}:F${currentRow}`);
+    totalRow.getCell(3).value = "합계";
 
     const supplyTotal = rows.reduce((sum, r) => sum + money(r.supply_amount), 0);
     const vatTotal = rows.reduce((sum, r) => sum + money(r.vat_amount), 0);
     const total = supplyTotal + vatTotal;
 
-    sheet.getCell("G4").value = "공급가 합계";
-    sheet.getCell("H4").value = supplyTotal;
-    sheet.getCell("G5").value = "부가세 합계";
-    sheet.getCell("H5").value = vatTotal;
-    sheet.getCell("I4").value = "총합계";
-    sheet.getCell("J4").value = total;
+    totalRow.getCell(7).value = supplyTotal;
+    totalRow.getCell(8).value = vatTotal;
+    totalRow.getCell(9).value = total;
 
-    for (const cell of ["G4", "G5", "I4"]) {
-      sheet.getCell(cell).font = { bold: true, color: { argb: "FF0F172A" } };
-      sheet.getCell(cell).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFEFF6FF" },
-      };
-      sheet.getCell(cell).border = borderStyle();
-      sheet.getCell(cell).alignment = { horizontal: "center" };
-    }
-
-    for (const cell of ["H4", "H5", "J4"]) {
-      sheet.getCell(cell).numFmt = "#,##0";
-      sheet.getCell(cell).font = { bold: true };
-      sheet.getCell(cell).border = borderStyle();
-      sheet.getCell(cell).alignment = { horizontal: "right" };
-    }
-
-    const headerRowNumber = 7;
-    const header = [
-      "날짜",
-      "상호",
-      "출발",
-      "도착",
-      "지급상태",
-      "차종",
-      "공급가액",
-      "부가세",
-      "합계",
-      "메모",
-    ];
-
-    sheet.getRow(headerRowNumber).values = header;
-
-    sheet.getRow(headerRowNumber).eachCell((cell) => {
-      cell.font = {
-        bold: true,
-        color: { argb: "FFFFFFFF" },
-      };
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF0F172A" },
-      };
+    for (let col = 3; col <= 18; col++) {
+      const cell = totalRow.getCell(col);
       cell.border = borderStyle();
+      cell.font = { bold: true };
       cell.alignment = {
-        horizontal: "center",
+        horizontal: col >= 7 && col <= 9 ? "right" : "center",
         vertical: "middle",
       };
-    });
-
-    let currentRow = headerRowNumber + 1;
-
-    for (const record of rows) {
-      const row = sheet.getRow(currentRow);
-
-      row.values = [
-        record.record_date,
-        record.vendor_name,
-        record.departure ?? "",
-        record.destination ?? "",
-        record.payment_status ?? "",
-        record.vehicle_type ?? "",
-        money(record.supply_amount),
-        money(record.vat_amount),
-        money(record.supply_amount) + money(record.vat_amount),
-        record.memo ?? record.item_name ?? "",
-      ];
-
-      row.eachCell((cell, colNumber) => {
-        cell.border = borderStyle();
-        cell.alignment = {
-          vertical: "middle",
-          horizontal: colNumber >= 7 && colNumber <= 9 ? "right" : "center",
-        };
-
-        if (colNumber >= 7 && colNumber <= 9) {
-          cell.numFmt = "#,##0";
-        }
-      });
-
-      currentRow += 1;
-    }
-
-    const footerRow = currentRow + 1;
-
-    sheet.mergeCells(`A${footerRow}:F${footerRow}`);
-    sheet.getCell(`A${footerRow}`).value = "합계";
-    sheet.getCell(`A${footerRow}`).font = { bold: true };
-    sheet.getCell(`A${footerRow}`).alignment = { horizontal: "center" };
-    sheet.getCell(`A${footerRow}`).fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFEFF6FF" },
-    };
-    sheet.getCell(`A${footerRow}`).border = borderStyle();
-
-    sheet.getCell(`G${footerRow}`).value = supplyTotal;
-    sheet.getCell(`H${footerRow}`).value = vatTotal;
-    sheet.getCell(`I${footerRow}`).value = total;
-
-    for (const col of ["G", "H", "I", "J"]) {
-      const cell = sheet.getCell(`${col}${footerRow}`);
-      cell.font = { bold: true };
-      cell.numFmt = "#,##0";
-      cell.border = borderStyle();
-      cell.alignment = { horizontal: "right" };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
         fgColor: { argb: "FFEFF6FF" },
       };
+
+      if (col >= 7 && col <= 9) {
+        cell.numFmt = "#,##0";
+      }
     }
 
-    sheet.views = [{ state: "frozen", ySplit: 7 }];
+    sheet.views = [{ state: "frozen", ySplit: 5 }];
 
     const buffer = await workbook.xlsx.writeBuffer();
+    const excelBuffer = Buffer.from(buffer);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(excelBuffer, {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

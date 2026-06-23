@@ -46,9 +46,7 @@ async function buildMergedPdf(
         .from("evidence")
         .download(file.file_path);
 
-      if (error || !data) {
-        continue;
-      }
+      if (error || !data) continue;
 
       const bytes = new Uint8Array(await data.arrayBuffer());
       const contentType = file.file_type || "";
@@ -61,7 +59,6 @@ async function buildMergedPdf(
             srcPdf,
             srcPdf.getPageIndices()
           );
-
           pages.forEach((page) => outputPdf.addPage(page));
         } else if (
           contentType.includes("png") ||
@@ -144,14 +141,25 @@ export async function POST(req: NextRequest) {
 
     const { data: records, error: recordsError } = await query;
 
-    if (recordsError) {
-      throw recordsError;
-    }
+    if (recordsError) throw recordsError;
 
     const typedRecords = (records ?? []) as TaxRecord[];
     const recordIds = typedRecords.map((r) => r.id);
 
-    const csv = "\uFEFF" + toTemplateCsv(typedRecords);
+    let typedAttachments: EvidenceAttachment[] = [];
+
+    if (recordIds.length > 0) {
+      const { data: attachments, error: attError } = await supabase
+        .from("attachments")
+        .select("*")
+        .in("tax_record_id", recordIds);
+
+      if (attError) throw attError;
+
+      typedAttachments = (attachments ?? []) as EvidenceAttachment[];
+    }
+
+    const csv = "\uFEFF" + toTemplateCsv(typedRecords, typedAttachments);
 
     if (mode === "csv") {
       return new NextResponse(csv, {
@@ -162,21 +170,6 @@ export async function POST(req: NextRequest) {
           )}"`,
         },
       });
-    }
-
-    let typedAttachments: EvidenceAttachment[] = [];
-
-    if (recordIds.length > 0) {
-      const { data: attachments, error: attError } = await supabase
-        .from("attachments")
-        .select("*")
-        .in("tax_record_id", recordIds);
-
-      if (attError) {
-        throw attError;
-      }
-
-      typedAttachments = (attachments ?? []) as EvidenceAttachment[];
     }
 
     if (mode === "pdf-merged") {
@@ -210,9 +203,7 @@ export async function POST(req: NextRequest) {
             .from("evidence")
             .download(file.file_path);
 
-          if (!data) {
-            continue;
-          }
+          if (!data) continue;
 
           const ext = file.file_name.includes(".")
             ? file.file_name.split(".").pop()

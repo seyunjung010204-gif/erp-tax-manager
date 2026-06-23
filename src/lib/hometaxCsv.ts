@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { TaxRecord, TaxType } from "@/types/tax";
+import { EvidenceAttachment, TaxRecord, TaxType } from "@/types/tax";
 
 type CsvRow = Record<string, string>;
 
@@ -123,9 +123,11 @@ function parseDate(value: string) {
   const cleaned = value.trim();
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned;
+
   if (/^\d{4}\.\d{2}\.\d{2}$/.test(cleaned)) {
     return cleaned.replace(/\./g, "-");
   }
+
   if (/^\d{4}\/\d{2}\/\d{2}$/.test(cleaned)) {
     return cleaned.replace(/\//g, "-");
   }
@@ -152,7 +154,7 @@ function splitLines(text: string) {
 }
 
 function findHeaderLineIndex(lines: string[]) {
-  const requiredHints = [
+  const hints = [
     "공급가액",
     "세액",
     "작성일자",
@@ -168,7 +170,7 @@ function findHeaderLineIndex(lines: string[]) {
 
   lines.forEach((line, index) => {
     const normalizedLine = normalize(line);
-    const score = requiredHints.reduce((sum, hint) => {
+    const score = hints.reduce((sum, hint) => {
       return normalizedLine.includes(normalize(hint)) ? sum + 1 : sum;
     }, 0);
 
@@ -247,23 +249,106 @@ export function parseHometaxCsv(
       source: "hometax_csv",
       memo: null,
       created_by: userId,
+      payment_date: null,
+      approval_doc_checked: false,
+      bank_account_checked: false,
+      business_license_checked: false,
+      withholding_checked: false,
+      etc_evidence: null,
+      remark: null,
     };
   });
 }
 
-export function toTemplateCsv(records: TaxRecord[]) {
+function hasAttachment(
+  record: TaxRecord,
+  attachments: EvidenceAttachment[],
+  types: string[]
+) {
+  return attachments.some(
+    (a) => a.tax_record_id === record.id && types.includes(String(a.attachment_type))
+  );
+}
+
+function mark(value: boolean) {
+  return value ? "●" : "";
+}
+
+export function toFixedTaxInvoiceRows(
+  records: TaxRecord[],
+  attachments: EvidenceAttachment[] = []
+) {
+  return records.map((r) => {
+    const hasTaxInvoice =
+      r.source === "hometax_csv" ||
+      hasAttachment(r, attachments, ["tax_invoice"]);
+
+    const hasStatement = hasAttachment(r, attachments, ["statement"]);
+
+    const hasBankAccount =
+      Boolean(r.bank_account_checked) ||
+      hasAttachment(r, attachments, ["bank_account"]);
+
+    const hasBusinessLicense =
+      Boolean(r.business_license_checked) ||
+      hasAttachment(r, attachments, ["business_license"]);
+
+    const hasWithholding =
+      Boolean(r.withholding_checked) ||
+      hasAttachment(r, attachments, ["withholding"]);
+
+    const hasApprovalDoc =
+      Boolean(r.approval_doc_checked) ||
+      hasAttachment(r, attachments, ["approval_doc"]);
+
+    const etcText =
+      r.etc_evidence ||
+      (hasAttachment(r, attachments, ["etc", "camera_photo", "evidence"])
+        ? "기타증빙"
+        : "");
+
+    return [
+      r.record_date,
+      r.vendor_name,
+      r.business_number ?? "",
+      r.item_name ?? r.memo ?? "",
+      Number(r.supply_amount ?? 0),
+      Number(r.vat_amount ?? 0),
+      Number(r.supply_amount ?? 0) + Number(r.vat_amount ?? 0),
+      r.payment_date ?? "",
+      mark(hasApprovalDoc),
+      mark(hasTaxInvoice),
+      mark(hasStatement),
+      mark(hasBankAccount),
+      mark(hasBusinessLicense),
+      mark(hasWithholding),
+      etcText,
+      r.remark ?? "",
+    ];
+  });
+}
+
+export function toTemplateCsv(
+  records: TaxRecord[],
+  attachments: EvidenceAttachment[] = []
+) {
   const headers = [
-    "날짜",
-    "상호",
-    "출발",
-    "도착",
-    "지급상태",
-    "차종",
-    "공급가액",
-    "부가세",
-    "증빙상태",
-    "승인번호",
-    "메모",
+    "세금계산서 발행일자",
+    "거래선 - 상호",
+    "거래선 - 사업자등록번호",
+    "적요",
+    "금액 - 공급가",
+    "금액 - VAT",
+    "금액 - 계",
+    "지급일",
+    "관련증빙 - 품의서",
+    "관련증빙 - 세금계산서",
+    "관련증빙 - 거래명세서",
+    "관련증빙 - 계좌사본",
+    "관련증빙 - 사업자등록증",
+    "관련증빙 - 원천징수영수증",
+    "관련증빙 - 기타",
+    "비고",
   ];
 
   const escapeCsv = (value: unknown) => {
@@ -274,19 +359,9 @@ export function toTemplateCsv(records: TaxRecord[]) {
     return text;
   };
 
-  const rows = records.map((r) => [
-    r.record_date,
-    r.vendor_name,
-    r.departure ?? "",
-    r.destination ?? "",
-    r.payment_status ?? "",
-    r.vehicle_type ?? "",
-    r.supply_amount,
-    r.vat_amount,
-    "",
-    r.approval_number ?? "",
-    r.memo ?? "",
-  ]);
+  const rows = toFixedTaxInvoiceRows(records, attachments);
 
-  return [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\n");
+  return [headers, ...rows]
+    .map((row) => row.map(escapeCsv).join(","))
+    .join("\n");
 }

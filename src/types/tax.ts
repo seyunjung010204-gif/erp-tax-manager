@@ -2,6 +2,17 @@ export type UserRole = "admin" | "user" | "viewer";
 
 export type TaxType = "purchase" | "sales";
 
+export type EvidenceType =
+  | "tax_invoice"
+  | "statement"
+  | "bank_account"
+  | "business_license"
+  | "withholding"
+  | "approval_doc"
+  | "etc"
+  | "camera_photo"
+  | "evidence";
+
 export type TaxRecord = {
   id: string;
   type: TaxType;
@@ -23,6 +34,14 @@ export type TaxRecord = {
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
+
+  payment_date?: string | null;
+  approval_doc_checked?: boolean | null;
+  bank_account_checked?: boolean | null;
+  business_license_checked?: boolean | null;
+  withholding_checked?: boolean | null;
+  etc_evidence?: string | null;
+  remark?: string | null;
 };
 
 export type EvidenceAttachment = {
@@ -32,7 +51,7 @@ export type EvidenceAttachment = {
   file_type: string;
   file_path: string;
   file_size?: number | null;
-  attachment_type: string;
+  attachment_type: EvidenceType | string;
   uploaded_by?: string | null;
   created_at?: string;
 };

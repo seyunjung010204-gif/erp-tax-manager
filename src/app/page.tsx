@@ -230,9 +230,9 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
       });
 
       setRecords((prev) => [...((data ?? []) as TaxRecord[]), ...prev]);
-      alert(`${parsed.length}건을 홈택스 CSV에서 가져왔습니다.`);
+      alert(`${parsed.length}건을 홈택스 파일에서 가져왔습니다.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "CSV 업로드에 실패했습니다.");
+      alert(e instanceof Error ? e.message : "CSV/엑셀 업로드에 실패했습니다.");
     } finally {
       setLoading(false);
       if (csvInputRef.current) csvInputRef.current.value = "";
@@ -645,7 +645,7 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
               홈택스 세금계산서와 증빙자료를 한 곳에서 관리합니다.
             </h1>
             <p className="mt-3 text-sm text-slate-500">
-              로그인 후 CSV 업로드, 증빙 1:1 매칭, 기간별 내보내기를 사용할 수 있습니다.
+              로그인 후 CSV/엑셀 업로드, 증빙 1:1 매칭, 기간별 내보내기를 사용할 수 있습니다.
             </p>
           </div>
 
@@ -720,7 +720,7 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
 
             <button className="btn" onClick={() => csvInputRef.current?.click()}>
               <Upload size={16} />
-              CSV 업로드
+              CSV/엑셀 업로드
             </button>
 
             <button className="btn btn-primary" onClick={() => setExportOpen(true)}>
@@ -792,7 +792,7 @@ const parsed = parseHometaxCsv(text, csvType, sessionUserId);
           <input
             ref={csvInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
